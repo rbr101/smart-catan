@@ -8,34 +8,28 @@
  * The integration uses the Home Assistant webhook API to send notifications
  * when numbers are selected, enabling home automation actions
  * to be triggered by game events.
+ *
+ * Whether the integration is enabled, and its host/port/token, are runtime
+ * settings stored in NVS flash (via Preferences) so they survive reboots and
+ * can be changed from the web UI without reflashing.
  */
 
 #include "HomeAssistantTrigger.h"
 
-// Only compile this implementation if Home Assistant integration is enabled
-#ifdef ENABLE_HOME_ASSISTANT
-
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <Preferences.h>
 
 // Static variables to store Home Assistant connection configuration
 static String _haHost;           // Hostname or IP address of Home Assistant instance
 static uint16_t _haPort;         // Port number (typically 8123)
 static String _haApiKey;         // Long-lived access token for authentication
 static String _haScriptEndpoint; // API endpoint for triggering automation scripts
+static bool _haEnabled = false;  // Whether triggers are actually sent
 
-/**
- * Initialize the Home Assistant connection settings
- *
- * Stores the provided configuration parameters for later use
- * when triggering automations. This function must be called before
- * any Home Assistant triggers can be sent.
- *
- * @param host           Hostname or IP address of the Home Assistant instance
- * @param port           Port number (typically 8123 for Home Assistant)
- * @param apiKey         Long-lived access token for API authentication
- * @param scriptEndpoint API endpoint path for triggering automation scripts
- */
+static Preferences haPrefs;
+static const char *HA_NAMESPACE = "haconfig";
+
 void initHomeAssistant(const char *host, uint16_t port, const char *apiKey, const char *scriptEndpoint)
 {
     // Store the configuration in static variables for later use
@@ -43,6 +37,57 @@ void initHomeAssistant(const char *host, uint16_t port, const char *apiKey, cons
     _haPort = port;
     _haApiKey = apiKey;
     _haScriptEndpoint = scriptEndpoint;
+}
+
+void setHomeAssistantEnabled(bool enabled)
+{
+    _haEnabled = enabled;
+}
+
+bool isHomeAssistantEnabled()
+{
+    return _haEnabled;
+}
+
+String getHomeAssistantHost()
+{
+    return _haHost;
+}
+
+uint16_t getHomeAssistantPort()
+{
+    return _haPort;
+}
+
+String getHomeAssistantToken()
+{
+    return _haApiKey;
+}
+
+void loadHomeAssistantConfig(const char *defaultHost, uint16_t defaultPort, const char *defaultToken, bool defaultEnabled)
+{
+    haPrefs.begin(HA_NAMESPACE, true); // read-only
+    String host = haPrefs.getString("host", defaultHost);
+    uint16_t port = haPrefs.getUShort("port", defaultPort);
+    String token = haPrefs.getString("token", defaultToken);
+    bool enabled = haPrefs.getBool("enabled", defaultEnabled);
+    haPrefs.end();
+
+    initHomeAssistant(host.c_str(), port, token.c_str(), "/api/services/script/turn_on");
+    setHomeAssistantEnabled(enabled);
+}
+
+void configureHomeAssistant(const String &host, uint16_t port, const String &token, bool enabled)
+{
+    initHomeAssistant(host.c_str(), port, token.c_str(), "/api/services/script/turn_on");
+    setHomeAssistantEnabled(enabled);
+
+    haPrefs.begin(HA_NAMESPACE, false); // read-write
+    haPrefs.putString("host", host);
+    haPrefs.putUShort("port", port);
+    haPrefs.putString("token", token);
+    haPrefs.putBool("enabled", enabled);
+    haPrefs.end();
 }
 
 /**
@@ -53,12 +98,18 @@ void initHomeAssistant(const char *host, uint16_t port, const char *apiKey, cons
  * like lighting effects corresponding to different game events.
  *
  * Uses a webhook endpoint format: http://{host}:{port}/api/webhook/esp32_number
- * with a JSON payload containing the selected number.
+ * with a JSON payload containing the selected number. Does nothing if the
+ * integration is currently disabled.
  *
  * @param selectedNumber The dice number that was selected (2-12, or 7 for robber)
  */
 void triggerHomeAssistantScript(int selectedNumber)
 {
+    if (!_haEnabled)
+    {
+        return;
+    }
+
     HTTPClient http;
 
     // Construct the URL for the Home Assistant webhook
@@ -67,6 +118,11 @@ void triggerHomeAssistantScript(int selectedNumber)
 
     // Initialize the HTTP request
     http.begin(url);
+
+    // Keep a misconfigured/unreachable Home Assistant from blocking the
+    // caller (and therefore every web UI request) for the default ~5s.
+    http.setConnectTimeout(1500);
+    http.setTimeout(1500);
 
     // Set required headers
     http.addHeader("Content-Type", "application/json");
@@ -91,5 +147,3 @@ void triggerHomeAssistantScript(int selectedNumber)
     // Clean up HTTP resources
     http.end();
 }
-
-#endif // ENABLE_HOME_ASSISTANT

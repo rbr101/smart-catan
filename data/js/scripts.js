@@ -21,7 +21,13 @@ var numberButtons,
   option4,
   option5,
   settingsModa,
-  closeSettingsBtn;
+  closeSettingsBtn,
+  haEnabled,
+  haHost,
+  haPort,
+  haToken,
+  saveHaConfigBtn,
+  haConfigStatus;
 
 // -------------- Communication with Server --------------
 
@@ -285,6 +291,7 @@ function rollDice() {
 window.addEventListener('load', () => {
   loadElementValues();
   addSettingsListeners();
+  loadHaConfig();
 });
 
 /**
@@ -305,6 +312,53 @@ function loadElementValues() {
   option5 = document.getElementById("option5");
   settingsModal = document.getElementById("settingsModal");
   closeSettingsBtn = document.getElementById("closeSettingsBtn");
+  haEnabled = document.getElementById("haEnabled");
+  haHost = document.getElementById("haHost");
+  haPort = document.getElementById("haPort");
+  haToken = document.getElementById("haToken");
+  saveHaConfigBtn = document.getElementById("saveHaConfigBtn");
+  haConfigStatus = document.getElementById("haConfigStatus");
+}
+
+// -------------- Home Assistant Settings --------------
+
+/**
+ * Fetch the current Home Assistant configuration and fill the settings form
+ */
+function loadHaConfig() {
+  fetch('/gethaconfig')
+    .then(response => response.json())
+    .then(data => {
+      haEnabled.checked = data.enabled;
+      haHost.value = data.host;
+      haPort.value = data.port;
+      haToken.value = data.token;
+    })
+    .catch(err => console.error("Error loading Home Assistant config:", err));
+}
+
+/**
+ * Save the Home Assistant configuration entered in the settings form
+ */
+function saveHaConfig() {
+  const params = new URLSearchParams({
+    enabled: haEnabled.checked ? "1" : "0",
+    host: haHost.value,
+    port: haPort.value,
+    token: haToken.value
+  });
+
+  haConfigStatus.textContent = "Saving...";
+  fetch('/sethaconfig?' + params.toString())
+    .then(response => response.text())
+    .then(() => {
+      haConfigStatus.textContent = "Saved!";
+      setTimeout(() => { haConfigStatus.textContent = ""; }, 2000);
+    })
+    .catch(err => {
+      console.error("Error saving Home Assistant config:", err);
+      haConfigStatus.textContent = "Error saving settings";
+    });
 }
 
 // -------------- Modal Handling --------------
@@ -366,6 +420,9 @@ function addSettingsListeners() {
     fetch('/manualDice?value=' + value)
       .catch(err => console.error("Error updating manualDice:", err));
   });
+
+  // Home Assistant settings save button
+  saveHaConfigBtn.addEventListener("click", saveHaConfig);
 }
 
 /**

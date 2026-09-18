@@ -339,6 +339,30 @@ input:checked+.slider:before {
   font-size: 14px;
 }
 
+/* Home Assistant settings fields */
+.settings-field-label {
+  display: block;
+  font-size: 13px;
+  color: #555;
+  margin-top: 8px;
+}
+
+.settings-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px;
+  margin-top: 2px;
+  font-size: 14px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.ha-config-status {
+  font-size: 13px;
+  margin-left: 8px;
+  color: #2e7d32;
+}
+
 /* Disabled button styling */
 button:disabled {
   background-color: #ccc;

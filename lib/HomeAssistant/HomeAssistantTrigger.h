@@ -6,18 +6,15 @@
  * the Catan board to notify Home Assistant when dice numbers are selected,
  * enabling home automation responses to game events.
  *
- * The library is conditionally compiled based on the ENABLE_HOME_ASSISTANT
- * definition, allowing users to disable this feature if not needed.
+ * Whether the integration is active, and its host/port/token, are runtime
+ * settings (configurable from the web UI, persisted in flash) rather than a
+ * compile-time flag, so this header no longer branches on a macro.
  */
 
 #ifndef HOME_ASSISTANT_TRIGGER_H
 #define HOME_ASSISTANT_TRIGGER_H
 
 #include <Arduino.h>
-
-// When ENABLE_HOME_ASSISTANT is defined, include the real implementation.
-// Otherwise, provide dummy (inline) functions to maintain API compatibility.
-#ifdef ENABLE_HOME_ASSISTANT
 
 /**
  * Initialize the Home Assistant connection settings
@@ -37,36 +34,32 @@ void initHomeAssistant(const char *host, uint16_t port, const char *apiKey, cons
  *
  * Sends an HTTP POST request to the configured Home Assistant instance
  * with the selected dice number, which can trigger automations like
- * lighting effects corresponding to different game events.
+ * lighting effects corresponding to different game events. Does nothing
+ * if the integration is currently disabled.
  *
  * @param selectedNumber The dice number that was selected (2-12, or 7 for robber)
  */
 void triggerHomeAssistantScript(int selectedNumber);
 
-#else // If Home Assistant integration is disabled, provide stub implementations
+/** Enables or disables sending triggers, without changing host/port/token. */
+void setHomeAssistantEnabled(bool enabled);
+bool isHomeAssistantEnabled();
+
+String getHomeAssistantHost();
+uint16_t getHomeAssistantPort();
+String getHomeAssistantToken();
 
 /**
- * Stub implementation when Home Assistant is disabled
- *
- * This empty implementation maintains API compatibility when
- * the ENABLE_HOME_ASSISTANT flag is not defined.
+ * Loads the persisted Home Assistant config from flash and applies it,
+ * falling back to the given defaults the first time (before anything has
+ * been saved via the web UI).
  */
-inline void initHomeAssistant(const char *host, uint16_t port, const char *apiKey, const char *scriptEndpoint)
-{
-    // Do nothing when Home Assistant integration is disabled
-}
+void loadHomeAssistantConfig(const char *defaultHost, uint16_t defaultPort, const char *defaultToken, bool defaultEnabled);
 
 /**
- * Stub implementation when Home Assistant is disabled
- *
- * This empty implementation maintains API compatibility when
- * the ENABLE_HOME_ASSISTANT flag is not defined.
+ * Applies new Home Assistant settings immediately and persists them to
+ * flash so they survive a reboot.
  */
-inline void triggerHomeAssistantScript(int selectedNumber)
-{
-    // Do nothing when Home Assistant integration is disabled
-}
+void configureHomeAssistant(const String &host, uint16_t port, const String &token, bool enabled);
 
-#endif // ENABLE_HOME_ASSISTANT
-
-#endif // HOME_ASSISTANT_TRIGGER_H
+#endif

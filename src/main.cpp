@@ -383,6 +383,40 @@ void handleUpdateManualDice()
 }
 
 /**
+ * Web server handler to read the current Home Assistant configuration
+ * Used by the settings page to prefill its form fields
+ */
+void handleGetHaConfig()
+{
+  JsonDocument doc;
+  doc["enabled"] = isHomeAssistantEnabled();
+  doc["host"] = getHomeAssistantHost();
+  doc["port"] = getHomeAssistantPort();
+  doc["token"] = getHomeAssistantToken();
+
+  String response;
+  serializeJson(doc, response);
+  server.send(200, "application/json", response);
+}
+
+/**
+ * Web server handler to update the Home Assistant configuration
+ * Applies the new settings immediately and persists them to flash
+ */
+void handleSetHaConfig()
+{
+  String host = server.arg("host");
+  uint16_t port = (uint16_t)server.arg("port").toInt();
+  String token = server.arg("token");
+  bool enabled = server.arg("enabled") == "1";
+
+  configureHomeAssistant(host, port, token, enabled);
+
+  Serial.printf("[/sethaconfig] enabled=%d host=%s port=%u\n", enabled, host.c_str(), port);
+  server.send(200, "text/plain", "Home Assistant config saved");
+}
+
+/**
  * Web server handler to set or shuffle classic board mode
  */
 void handleSetClassic()
@@ -476,14 +510,13 @@ void handleStartGame()
   ledController.stopAnimation();
   ledController.startAnimation(START_GAME_ANIMATION, nullptr, 0, 250);
 
-  // Generate JSON response
+  // Generate JSON response and send it immediately; the flash write below
+  // doesn't need to make the browser wait.
   String jsonResponse = generateJSON();
+  server.send(200, "application/json", jsonResponse);
 
   // Save game state to flash for persistence
   saveGameState();
-
-  // Send the response
-  server.send(200, "application/json", jsonResponse);
 
   // Debug output
   Serial.println(jsonResponse);
@@ -502,14 +535,13 @@ void handleEndGame()
   // Restart the waiting animation
   ledController.startAnimation(WAITING_ANIMATION, nullptr, 0, 50);
 
+  // Generate JSON response and send it immediately; deleting the saved
+  // state below doesn't need to make the browser wait.
+  String jsonResponse = generateJSON();
+  server.send(200, "application/json", jsonResponse);
+
   // Delete the saved game state
   deleteGameState();
-
-  // Generate JSON response
-  String jsonResponse = generateJSON();
-
-  // Send the response
-  server.send(200, "application/json", jsonResponse);
 
   // Debug output
   Serial.println(jsonResponse);
@@ -526,10 +558,8 @@ void turnOnNumber()
   int tileCount = boardConfig.isExtension ? LED_COUNT_EXTENSION : LED_COUNT_CLASSIC;
   ledController.stopAnimation();
 
-  // Trigger Home Assistant with the selected number
-#ifdef ENABLE_HOME_ASSISTANT
+  // Trigger Home Assistant with the selected number (no-op if disabled)
   triggerHomeAssistantScript(selectedNumber);
-#endif
 
   // Turn off all LEDs before applying new state
   ledController.turnOffAllLeds();
@@ -590,14 +620,15 @@ void handleSelectNumber()
   Serial.print("[/selectNumber] Number selected: ");
   Serial.println(selectedNumber);
 
+  // Respond immediately so the web UI feels responsive; the LED update,
+  // Home Assistant trigger, and flash save can happen after.
+  server.send(200, "text/plain", value);
+
   // Update LEDs to reflect the selected number
   turnOnNumber();
 
   // Save the current game state
   saveGameState();
-
-  // Respond to the client
-  server.send(200, "text/plain", value);
 }
 
 /**
@@ -611,23 +642,24 @@ void handleRollDice()
   int die2 = random(1, 7);
   selectedNumber = die1 + die2;
 
+  // Convert the total to a string
+  String result = String(selectedNumber);
+
+  // Respond immediately so the web UI feels responsive; the LED animation
+  // (~1-1.5s) and flash save below would otherwise make the browser wait.
+  server.send(200, "text/plain", result);
+
   // Run a dice roll animation on the LEDs
   ledController.rollDiceAnimation();
 
   // Turn off all LEDs (animation ends with all on)
   ledController.turnOffAllLeds();
 
-  // Convert the total to a string
-  String result = String(selectedNumber);
-
   // Update the board display
   turnOnNumber();
 
   // Save the current game state
   saveGameState();
-
-  // Respond to the client with the dice result
-  server.send(200, "text/plain", result);
 }
 
 // --------------------------------------------------------------
@@ -642,7 +674,16 @@ void setup()
 {
   // Initialize serial communication
   Serial.begin(115200);
-  delay(2000); // Short delay for serial port to initialize
+  // This board uses native USB (HWCDC), not a UART bridge chip: prints made
+  // before a host terminal actually attaches are lost, not buffered. Wait
+  // up to 3s for a monitor to connect, but don't hang forever so the board
+  // still boots normally when run standalone without USB attached.
+  unsigned long serialWaitStart = millis();
+  while (!Serial && millis() - serialWaitStart < 3000)
+  {
+    delay(10);
+  }
+  delay(200); // Brief settle time after the host attaches
 
   // Initialize the SPI Flash File System
   if (!SPIFFS.begin(true))
@@ -702,6 +743,8 @@ void setup()
   server.on("/sameNumbersCanTouch", HTTP_GET, handleUpdateSameNumbersCanTouch);
   server.on("/sameResourceCanTouch", HTTP_GET, handleUpdateSameResourceCanTouch);
   server.on("/manualDice", HTTP_GET, handleUpdateManualDice);
+  server.on("/gethaconfig", HTTP_GET, handleGetHaConfig);
+  server.on("/sethaconfig", HTTP_GET, handleSetHaConfig);
 
   // Game control endpoints
   server.on("/setclassic", HTTP_GET, handleSetClassic);
@@ -732,12 +775,19 @@ void setup()
     Serial.println("Using saved board state.");
   }
 
-  // Initialize Home Assistant if enabled
+  // Load Home Assistant config from flash (host/port/token/enabled), so
+  // settings saved earlier via the web UI survive this reboot. The
+  // ENABLE_HOME_ASSISTANT macro from password.h only supplies the very
+  // first boot's default, before anything has been saved.
 #ifdef ENABLE_HOME_ASSISTANT
-  initHomeAssistant(HA_IP, HA_PORT, HA_ACCESS_TOKEN, "/api/services/script/turn_on");
-  Serial.println("Home Assistant integration enabled");
+  loadHomeAssistantConfig(HA_IP, HA_PORT, HA_ACCESS_TOKEN, true);
+#else
+  loadHomeAssistantConfig(HA_IP, HA_PORT, HA_ACCESS_TOKEN, false);
 #endif
-  
+  Serial.printf("Home Assistant integration: %s (host=%s port=%u)\n",
+                isHomeAssistantEnabled() ? "enabled" : "disabled",
+                getHomeAssistantHost().c_str(), getHomeAssistantPort());
+
    // Initialize mDNS
   if (!MDNS.begin("smartcatan")) {   // Set the hostname to "smartcatan.local"
     Serial.println("Error setting up MDNS responder!");
@@ -762,4 +812,26 @@ void setup()
 void loop()
 {
   server.handleClient();
+
+  // Periodic WiFi status heartbeat. This board's native USB console has no
+  // reliable way to detect that a monitor is actually attached, so one-shot
+  // boot-time logging is easy to miss. Repeating it means opening the
+  // monitor at any moment shows the current status within a few seconds.
+  static unsigned long lastWifiLog = 0;
+  if (millis() - lastWifiLog > 5000)
+  {
+    lastWifiLog = millis();
+    if (WiFi.status() == WL_CONNECTED)
+    {
+      Serial.printf("[WiFi] connected | IP: %s | RSSI: %d dBm\n",
+                     WiFi.localIP().toString().c_str(), WiFi.RSSI());
+    }
+    else
+    {
+      Serial.printf("[WiFi] not connected | status code: %d | reconnecting...\n", WiFi.status());
+      // Belt-and-suspenders: WiFi.setAutoReconnect(true) handles most drops,
+      // but explicitly nudge it in case the AP was unreachable for a while.
+      WiFi.reconnect();
+    }
+  }
 }

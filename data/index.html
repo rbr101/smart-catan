@@ -107,6 +107,34 @@
       <span class="toggle-label">Allow Manual Dice</span>
       <br><br>
 
+      <hr>
+
+      <!-- Home Assistant integration settings -->
+      <h3>Home Assistant</h3>
+
+      <label class="switch">
+        <input type="checkbox" id="haEnabled">
+        <span class="slider"></span>
+      </label>
+      <span class="toggle-label">Enable Integration</span>
+      <br><br>
+
+      <label class="settings-field-label" for="haHost">Host / IP</label>
+      <input type="text" id="haHost" class="settings-input" placeholder="homeassistant.local">
+      <br>
+
+      <label class="settings-field-label" for="haPort">Port</label>
+      <input type="number" id="haPort" class="settings-input" placeholder="8123">
+      <br>
+
+      <label class="settings-field-label" for="haToken">Access Token</label>
+      <input type="password" id="haToken" class="settings-input" placeholder="Long-lived access token">
+      <br><br>
+
+      <button id="saveHaConfigBtn">Save Home Assistant Settings</button>
+      <span id="haConfigStatus" class="ha-config-status"></span>
+      <br><br>
+
       <!-- Close button for the settings modal -->
       <button class="close-btn" id="closeSettingsBtn">Close</button>
     </div>

@@ -11,15 +11,40 @@
  */
 void connectWifi(const char *WIFI_SSID, const char *WIFI_PASS)
 {
+    Serial.print("MAC Address: ");
+    Serial.println(WiFi.macAddress());
+
+    // Reset any stale state left over from a previous connection/session
+    // (e.g. after flashing new firmware) before starting a fresh attempt.
+    WiFi.mode(WIFI_STA);
+    WiFi.disconnect(true, true);
+    delay(100);
+
+    // Disable WiFi modem sleep: it saves power but adds tens to hundreds of
+    // ms of latency to every request and can make the connection flaky.
+    WiFi.setSleep(false);
+    WiFi.setAutoReconnect(true);
+
     Serial.print("Connecting to WiFi: ");
     Serial.println(WIFI_SSID);
     WiFi.begin(WIFI_SSID, WIFI_PASS);
 
-    // Wait for connection to be established
-    while (WiFi.status() != WL_CONNECTED)
+    // Wait for connection, but give up after ~20s so a wrong SSID/password
+    // doesn't hang here forever with nothing but dots.
+    unsigned long connectStart = millis();
+    const unsigned long connectTimeoutMs = 20000;
+    while (WiFi.status() != WL_CONNECTED && millis() - connectStart < connectTimeoutMs)
     {
         delay(500);
         Serial.print(".");
+    }
+
+    if (WiFi.status() != WL_CONNECTED)
+    {
+        Serial.print("\nWiFi connection FAILED, status code: ");
+        Serial.println(WiFi.status());
+        Serial.println("Will keep retrying in the background (see loop()).");
+        return;
     }
 
     // Print success message and IP address
@@ -55,10 +80,7 @@ void readHtml(String &htmlPage, WebServer &server)
     }
 
     // Read the file contents into the htmlPage string
-    while (file.available())
-    {
-        htmlPage += (char)file.read();
-    }
+    htmlPage = file.readString();
     file.close();
 
     // Set up routes for static assets (CSS and JavaScript files)
