@@ -263,11 +263,14 @@ button:hover {
 .modal-content {
   position: relative;
   background-color: #fff;
-  margin: 10% auto;
+  margin: 5vh auto;
   padding: 20px;
   border-radius: 5px;
   width: 90%;
   max-width: 400px;
+  max-height: 90vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
