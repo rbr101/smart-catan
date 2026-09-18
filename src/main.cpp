@@ -506,6 +506,180 @@ void handleGetBoard()
   }
 }
 
+// --------------------------------------------------------------
+//              SAVED BOARD LIBRARY (named board snapshots)
+// --------------------------------------------------------------
+
+const char *BOARD_FILE_PREFIX = "/board_";
+const char *BOARD_FILE_SUFFIX = ".json";
+
+/**
+ * Turns a user-provided board name into a safe SPIFFS filename: keeps only
+ * alphanumeric characters (replacing everything else with '_') and caps the
+ * length so it fits SPIFFS's filename limit. The original name is stored
+ * inside the file itself, so this only needs to be unique-ish, not pretty.
+ */
+String boardNameToFilename(const String &name)
+{
+  String safe;
+  for (size_t i = 0; i < name.length() && safe.length() < 20; i++)
+  {
+    char c = name[i];
+    safe += isalnum((unsigned char)c) ? c : '_';
+  }
+  if (safe.length() == 0)
+  {
+    safe = "board";
+  }
+  return String(BOARD_FILE_PREFIX) + safe + String(BOARD_FILE_SUFFIX);
+}
+
+/**
+ * Web server handler to list all saved boards by name
+ */
+void handleListBoards()
+{
+  JsonDocument doc;
+  JsonArray boards = doc.to<JsonArray>();
+
+  File root = SPIFFS.open("/");
+  File file = root.openNextFile();
+  while (file)
+  {
+    String path = String(file.name());
+    if (!path.startsWith("/"))
+    {
+      path = "/" + path;
+    }
+    if (path.startsWith(BOARD_FILE_PREFIX) && path.endsWith(BOARD_FILE_SUFFIX))
+    {
+      File boardFile = SPIFFS.open(path, FILE_READ);
+      if (boardFile)
+      {
+        JsonDocument boardDoc;
+        if (deserializeJson(boardDoc, boardFile) == DeserializationError::Ok)
+        {
+          boards.add(boardDoc["name"].as<String>());
+        }
+        boardFile.close();
+      }
+    }
+    file = root.openNextFile();
+  }
+
+  String response;
+  serializeJson(doc, response);
+  server.send(200, "application/json", response);
+}
+
+/**
+ * Web server handler to save the current board under a given name
+ */
+void handleSaveBoard()
+{
+  String name = server.arg("name");
+  if (name.length() == 0)
+  {
+    server.send(400, "text/plain", "Missing board name");
+    return;
+  }
+
+  JsonDocument doc;
+  doc["name"] = name;
+  doc["isExtension"] = boardConfig.isExtension;
+  JsonArray resources = doc["resources"].to<JsonArray>();
+  for (int v : board.resources)
+  {
+    resources.add(v);
+  }
+  JsonArray numbers = doc["numbers"].to<JsonArray>();
+  for (int v : board.numbers)
+  {
+    numbers.add(v);
+  }
+
+  File file = SPIFFS.open(boardNameToFilename(name), FILE_WRITE);
+  if (!file)
+  {
+    server.send(500, "text/plain", "Failed to save board");
+    return;
+  }
+  serializeJson(doc, file);
+  file.close();
+
+  Serial.printf("[/saveboard] Saved board '%s'\n", name.c_str());
+  server.send(200, "text/plain", "Board saved");
+}
+
+/**
+ * Web server handler to load a previously saved board by name, replacing
+ * the current board. Refused while a game is in progress.
+ */
+void handleLoadBoard()
+{
+  if (gameStarted)
+  {
+    server.send(409, "text/plain", "Cannot load a board while a game is in progress");
+    return;
+  }
+
+  String name = server.arg("name");
+  String filename = boardNameToFilename(name);
+  if (!SPIFFS.exists(filename))
+  {
+    server.send(404, "text/plain", "Board not found");
+    return;
+  }
+
+  File file = SPIFFS.open(filename, FILE_READ);
+  JsonDocument doc;
+  DeserializationError error = deserializeJson(doc, file);
+  file.close();
+  if (error)
+  {
+    server.send(500, "text/plain", "Failed to parse saved board");
+    return;
+  }
+
+  bool wantsExtension = doc["isExtension"];
+  if (wantsExtension != boardConfig.isExtension)
+  {
+    boardConfig.isExtension = wantsExtension;
+    ledController.restart(wantsExtension ? LED_COUNT_EXTENSION : LED_COUNT_CLASSIC);
+  }
+
+  board.resources.clear();
+  board.numbers.clear();
+  for (JsonVariant v : doc["resources"].as<JsonArray>())
+  {
+    board.resources.push_back(v.as<int>());
+  }
+  for (JsonVariant v : doc["numbers"].as<JsonArray>())
+  {
+    board.numbers.push_back(v.as<int>());
+  }
+  selectedNumber = 0;
+
+  // Persist as the current board too, so it's still loaded after a reboot
+  saveGameState();
+  showBoardResourceColors();
+
+  String jsonResponse = generateJSON();
+  server.send(200, "application/json", jsonResponse);
+
+  Serial.printf("[/loadboard] Loaded board '%s'\n", name.c_str());
+}
+
+/**
+ * Web server handler to delete a previously saved board by name
+ */
+void handleDeleteBoard()
+{
+  String name = server.arg("name");
+  SPIFFS.remove(boardNameToFilename(name));
+  server.send(200, "text/plain", "Board deleted");
+}
+
 /**
  * Web server handler to get currently selected number
  */
@@ -930,6 +1104,10 @@ void setup()
   server.on("/setextension", HTTP_GET, handleSetExtension);
   server.on("/getboard", HTTP_GET, handleGetBoard);
   server.on("/getnumber", HTTP_GET, handleGetNumber);
+  server.on("/listboards", HTTP_GET, handleListBoards);
+  server.on("/saveboard", HTTP_GET, handleSaveBoard);
+  server.on("/loadboard", HTTP_GET, handleLoadBoard);
+  server.on("/deleteboard", HTTP_GET, handleDeleteBoard);
   server.on("/startgame", HTTP_GET, handleStartGame);
   server.on("/endgame", HTTP_GET, handleEndGame);
   server.on("/selectNumber", HTTP_GET, handleSelectNumber);

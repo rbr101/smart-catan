@@ -37,7 +37,11 @@ var numberButtons,
   colorOre,
   colorDesert,
   saveLedConfigBtn,
-  ledConfigStatus;
+  ledConfigStatus,
+  saveBoardName,
+  saveBoardBtn,
+  saveBoardStatus,
+  savedBoardsList;
 
 // -------------- Communication with Server --------------
 
@@ -303,6 +307,7 @@ window.addEventListener('load', () => {
   addSettingsListeners();
   loadHaConfig();
   loadLedConfig();
+  loadSavedBoardsList();
 });
 
 /**
@@ -339,6 +344,113 @@ function loadElementValues() {
   colorDesert = document.getElementById("colorDesert");
   saveLedConfigBtn = document.getElementById("saveLedConfigBtn");
   ledConfigStatus = document.getElementById("ledConfigStatus");
+  saveBoardName = document.getElementById("saveBoardName");
+  saveBoardBtn = document.getElementById("saveBoardBtn");
+  saveBoardStatus = document.getElementById("saveBoardStatus");
+  savedBoardsList = document.getElementById("savedBoardsList");
+}
+
+// -------------- Saved Boards --------------
+
+/**
+ * Fetch the list of saved board names and render it, each with
+ * Load/Delete buttons
+ */
+function loadSavedBoardsList() {
+  fetch('/listboards')
+    .then(response => response.json())
+    .then(names => {
+      savedBoardsList.innerHTML = '';
+      if (names.length === 0) {
+        const empty = document.createElement('li');
+        empty.className = 'saved-boards-empty';
+        empty.textContent = 'No saved boards yet.';
+        savedBoardsList.appendChild(empty);
+        return;
+      }
+      names.forEach(name => {
+        const li = document.createElement('li');
+
+        const label = document.createElement('span');
+        label.textContent = name;
+        li.appendChild(label);
+
+        const actions = document.createElement('span');
+        actions.className = 'saved-board-actions';
+
+        const loadBtn = document.createElement('button');
+        loadBtn.textContent = 'Load';
+        loadBtn.addEventListener('click', () => loadSavedBoard(name));
+        actions.appendChild(loadBtn);
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.textContent = 'Delete';
+        deleteBtn.className = 'delete-board-btn';
+        deleteBtn.addEventListener('click', () => deleteSavedBoard(name));
+        actions.appendChild(deleteBtn);
+
+        li.appendChild(actions);
+        savedBoardsList.appendChild(li);
+      });
+    })
+    .catch(err => console.error("Error loading saved boards list:", err));
+}
+
+/**
+ * Save the current board under the name typed into the input field
+ */
+function saveCurrentBoard() {
+  const name = saveBoardName.value.trim();
+  if (!name) {
+    saveBoardStatus.textContent = "Enter a name first";
+    return;
+  }
+
+  saveBoardStatus.textContent = "Saving...";
+  fetch('/saveboard?name=' + encodeURIComponent(name))
+    .then(response => response.text())
+    .then(() => {
+      saveBoardStatus.textContent = "Saved!";
+      saveBoardName.value = '';
+      setTimeout(() => { saveBoardStatus.textContent = ""; }, 2000);
+      loadSavedBoardsList();
+    })
+    .catch(err => {
+      console.error("Error saving board:", err);
+      saveBoardStatus.textContent = "Error saving board";
+    });
+}
+
+/**
+ * Load a previously saved board by name and refresh the displayed board
+ */
+function loadSavedBoard(name) {
+  fetch('/loadboard?name=' + encodeURIComponent(name))
+    .then(response => {
+      if (!response.ok) {
+        throw new Error('Server returned ' + response.status);
+      }
+      return response.json();
+    })
+    .then(data => {
+      extension = data.extension;
+      currentSelectedNumber = data.selectedNumber;
+      updateStates(data);
+      settingsModal.style.display = "none";
+    })
+    .catch(err => {
+      console.error("Error loading board:", err);
+      saveBoardStatus.textContent = "Error loading board (is a game running?)";
+    });
+}
+
+/**
+ * Delete a previously saved board by name
+ */
+function deleteSavedBoard(name) {
+  fetch('/deleteboard?name=' + encodeURIComponent(name))
+    .then(() => loadSavedBoardsList())
+    .catch(err => console.error("Error deleting board:", err));
 }
 
 // -------------- LED Board Settings --------------
@@ -500,6 +612,9 @@ function addSettingsListeners() {
 
   // LED settings save button
   saveLedConfigBtn.addEventListener("click", saveLedConfig);
+
+  // Save current board button
+  saveBoardBtn.addEventListener("click", saveCurrentBoard);
 }
 
 /**

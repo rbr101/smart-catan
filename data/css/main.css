@@ -360,6 +360,56 @@ input:checked+.slider:before {
   border-radius: 4px;
 }
 
+/* Saved boards list */
+.save-board-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.save-board-row .settings-input {
+  width: auto;
+  flex: 1;
+  margin-top: 0;
+}
+
+.saved-boards-list {
+  list-style: none;
+  margin: 10px 0 0 0;
+  padding: 0;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.saved-boards-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-bottom: 1px solid #eee;
+  font-size: 14px;
+}
+
+.saved-boards-list li .saved-board-actions button {
+  font-size: 13px;
+  padding: 5px 8px;
+  margin-left: 6px;
+}
+
+.saved-boards-list li .saved-board-actions .delete-board-btn {
+  background: #b22222;
+}
+
+.saved-boards-list li .saved-board-actions .delete-board-btn:hover {
+  background: #8a1a1a;
+}
+
+.saved-boards-empty {
+  font-size: 13px;
+  color: #888;
+  margin-top: 8px;
+}
+
 .ha-config-status {
   font-size: 13px;
   margin-left: 8px;
