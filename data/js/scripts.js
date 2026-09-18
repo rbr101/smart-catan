@@ -27,7 +27,17 @@ var numberButtons,
   haPort,
   haToken,
   saveHaConfigBtn,
-  haConfigStatus;
+  haConfigStatus,
+  ledBrightness,
+  ledBrightnessValue,
+  colorSheep,
+  colorWood,
+  colorWheat,
+  colorBrick,
+  colorOre,
+  colorDesert,
+  saveLedConfigBtn,
+  ledConfigStatus;
 
 // -------------- Communication with Server --------------
 
@@ -292,6 +302,7 @@ window.addEventListener('load', () => {
   loadElementValues();
   addSettingsListeners();
   loadHaConfig();
+  loadLedConfig();
 });
 
 /**
@@ -318,6 +329,64 @@ function loadElementValues() {
   haToken = document.getElementById("haToken");
   saveHaConfigBtn = document.getElementById("saveHaConfigBtn");
   haConfigStatus = document.getElementById("haConfigStatus");
+  ledBrightness = document.getElementById("ledBrightness");
+  ledBrightnessValue = document.getElementById("ledBrightnessValue");
+  colorSheep = document.getElementById("colorSheep");
+  colorWood = document.getElementById("colorWood");
+  colorWheat = document.getElementById("colorWheat");
+  colorBrick = document.getElementById("colorBrick");
+  colorOre = document.getElementById("colorOre");
+  colorDesert = document.getElementById("colorDesert");
+  saveLedConfigBtn = document.getElementById("saveLedConfigBtn");
+  ledConfigStatus = document.getElementById("ledConfigStatus");
+}
+
+// -------------- LED Board Settings --------------
+
+/**
+ * Fetch the current LED brightness/color configuration and fill the form
+ */
+function loadLedConfig() {
+  fetch('/getledconfig')
+    .then(response => response.json())
+    .then(data => {
+      ledBrightness.value = data.brightness;
+      ledBrightnessValue.textContent = data.brightness;
+      colorSheep.value = data.sheep;
+      colorWood.value = data.wood;
+      colorWheat.value = data.wheat;
+      colorBrick.value = data.brick;
+      colorOre.value = data.ore;
+      colorDesert.value = data.desert;
+    })
+    .catch(err => console.error("Error loading LED config:", err));
+}
+
+/**
+ * Save the LED brightness/color configuration entered in the settings form
+ */
+function saveLedConfig() {
+  const params = new URLSearchParams({
+    brightness: ledBrightness.value,
+    sheep: colorSheep.value,
+    wood: colorWood.value,
+    wheat: colorWheat.value,
+    brick: colorBrick.value,
+    ore: colorOre.value,
+    desert: colorDesert.value
+  });
+
+  ledConfigStatus.textContent = "Saving...";
+  fetch('/setledconfig?' + params.toString())
+    .then(response => response.text())
+    .then(() => {
+      ledConfigStatus.textContent = "Saved!";
+      setTimeout(() => { ledConfigStatus.textContent = ""; }, 2000);
+    })
+    .catch(err => {
+      console.error("Error saving LED config:", err);
+      ledConfigStatus.textContent = "Error saving settings";
+    });
 }
 
 // -------------- Home Assistant Settings --------------
@@ -423,6 +492,14 @@ function addSettingsListeners() {
 
   // Home Assistant settings save button
   saveHaConfigBtn.addEventListener("click", saveHaConfig);
+
+  // LED brightness slider: live-update the shown value as it's dragged
+  ledBrightness.addEventListener("input", function () {
+    ledBrightnessValue.textContent = this.value;
+  });
+
+  // LED settings save button
+  saveLedConfigBtn.addEventListener("click", saveLedConfig);
 }
 
 /**

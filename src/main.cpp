@@ -28,6 +28,7 @@
 #include <ArduinoJson.h>
 #include <SPIFFS.h>
 #include <ESPmDNS.h>
+#include <Preferences.h>
 
 // Internal Project Headers
 #include "BoardGenerator.h"
@@ -81,6 +82,13 @@ const char *HA_ACCESS_TOKEN = "your_long_lived_access_token";
 
 // Initialize LED controller
 LedController ledController(LED_STRIP_PIN, LED_COUNT_CLASSIC);
+
+// Per-resource LED colors (index = resource ID, same encoding as the web
+// UI: 0 sheep, 1 wood, 2 wheat, 3 brick, 4 ore, 5 desert), configurable from
+// the web UI and persisted in flash. Populated by loadLedConfig() in setup().
+uint32_t resourceLedColors[6];
+static Preferences ledPrefs;
+static const char *LED_NAMESPACE = "ledconfig";
 
 // Currently selected dice number (2-12, 0 means none selected)
 int selectedNumber;
@@ -267,6 +275,11 @@ void loadGameState()
 //                  SERVER HANDLER FUNCTIONS
 // --------------------------------------------------------------
 
+// Defined further below; lights every tile with its resource color and
+// leaves them statically on (used to preview the board before a game
+// starts). Forward-declared here so boardGenerationTask can call it.
+void showBoardResourceColors();
+
 /**
  * FreeRTOS task that handles board generation in a separate thread
  * This prevents blocking the main loop during board calculation
@@ -281,6 +294,11 @@ void boardGenerationTask(void *pvParameters)
   // Signal that the board is ready
   Serial.println("Board generation complete.");
   boardReady = true;
+
+  // Preview the freshly generated board on the LEDs. This task is only
+  // (re)started when no game is in progress, so it's always safe to show
+  // the idle board-preview colors here.
+  showBoardResourceColors();
 
   // Delete the task when finished
   vTaskDelete(NULL);
@@ -532,8 +550,8 @@ void handleEndGame()
   gameStarted = false;
   selectedNumber = 0;
 
-  // Restart the waiting animation
-  ledController.startAnimation(WAITING_ANIMATION, nullptr, 0, 50);
+  // Back to idle: statically preview the board's resource colors again
+  showBoardResourceColors();
 
   // Generate JSON response and send it immediately; deleting the saved
   // state below doesn't need to make the browser wait.
@@ -548,8 +566,155 @@ void handleEndGame()
 }
 
 /**
+ * Maps a resource ID to its configured LED color.
+ *
+ * @param resourceId Resource ID (0-5), same encoding as the web UI
+ */
+uint32_t getResourceLedColor(int resourceId)
+{
+  if (resourceId < 0 || resourceId > 5)
+  {
+    return ledController.Color(255, 255, 255);
+  }
+  return resourceLedColors[resourceId];
+}
+
+/**
+ * Converts a packed RGB color to a "#rrggbb" hex string for the web UI's
+ * color picker inputs.
+ */
+String colorToHex(uint32_t color)
+{
+  char buf[8];
+  snprintf(buf, sizeof(buf), "#%06lX", (unsigned long)(color & 0xFFFFFF));
+  return String(buf);
+}
+
+/**
+ * Parses a "#rrggbb" (or "rrggbb") hex color string from the web UI into a
+ * packed RGB color. Returns 0 (off) for anything that doesn't parse.
+ */
+uint32_t hexToColor(const String &hex)
+{
+  String h = hex;
+  if (h.startsWith("#"))
+  {
+    h = h.substring(1);
+  }
+  if (h.length() != 6)
+  {
+    return 0;
+  }
+  return (uint32_t)strtoul(h.c_str(), nullptr, 16);
+}
+
+/**
+ * Loads the LED brightness and per-resource colors from flash, falling back
+ * to sensible defaults the first time (before anything has been saved via
+ * the web UI), and applies them.
+ */
+void loadLedConfig()
+{
+  ledPrefs.begin(LED_NAMESPACE, true); // read-only
+  uint8_t brightness = ledPrefs.getUChar("brightness", 80);
+  resourceLedColors[0] = ledPrefs.getUInt("c0", ledController.Color(200, 255, 200)); // Sheep
+  resourceLedColors[1] = ledPrefs.getUInt("c1", ledController.Color(0, 160, 0));     // Wood
+  resourceLedColors[2] = ledPrefs.getUInt("c2", ledController.Color(255, 215, 0));   // Wheat
+  resourceLedColors[3] = ledPrefs.getUInt("c3", ledController.Color(178, 34, 34));   // Brick
+  resourceLedColors[4] = ledPrefs.getUInt("c4", ledController.Color(255, 255, 255)); // Ore
+  resourceLedColors[5] = ledPrefs.getUInt("c5", 0);                                  // Desert - off
+  ledPrefs.end();
+
+  ledController.setBrightness(brightness);
+}
+
+/**
+ * Applies new LED brightness/colors immediately and persists them to flash
+ * so they survive a reboot.
+ */
+void saveLedConfig(uint8_t brightness, uint32_t colors[6])
+{
+  ledPrefs.begin(LED_NAMESPACE, false); // read-write
+  ledPrefs.putUChar("brightness", brightness);
+  for (int i = 0; i < 6; i++)
+  {
+    ledPrefs.putUInt(("c" + String(i)).c_str(), colors[i]);
+    resourceLedColors[i] = colors[i];
+  }
+  ledPrefs.end();
+
+  ledController.setBrightness(brightness);
+}
+
+/**
+ * Web server handler to read the current LED brightness/color configuration
+ * Used by the settings page to prefill the slider and color pickers
+ */
+void handleGetLedConfig()
+{
+  JsonDocument doc;
+  doc["brightness"] = ledController.getBrightness();
+  doc["sheep"] = colorToHex(resourceLedColors[0]);
+  doc["wood"] = colorToHex(resourceLedColors[1]);
+  doc["wheat"] = colorToHex(resourceLedColors[2]);
+  doc["brick"] = colorToHex(resourceLedColors[3]);
+  doc["ore"] = colorToHex(resourceLedColors[4]);
+  doc["desert"] = colorToHex(resourceLedColors[5]);
+
+  String response;
+  serializeJson(doc, response);
+  server.send(200, "application/json", response);
+}
+
+/**
+ * Web server handler to update the LED brightness/color configuration
+ * Applies the new settings immediately and persists them to flash
+ */
+void handleSetLedConfig()
+{
+  uint8_t brightness = (uint8_t)server.arg("brightness").toInt();
+  uint32_t colors[6] = {
+      hexToColor(server.arg("sheep")),
+      hexToColor(server.arg("wood")),
+      hexToColor(server.arg("wheat")),
+      hexToColor(server.arg("brick")),
+      hexToColor(server.arg("ore")),
+      hexToColor(server.arg("desert"))};
+
+  saveLedConfig(brightness, colors);
+
+  Serial.printf("[/setledconfig] brightness=%u\n", brightness);
+  server.send(200, "text/plain", "LED config saved");
+
+  // Repaint immediately with the new colors/brightness if no game is
+  // running; turnOnNumber() will pick them up on its own during gameplay.
+  if (!gameStarted)
+  {
+    showBoardResourceColors();
+  }
+}
+
+/**
+ * Lights every tile on the board with its resource color (matching the web
+ * UI) and leaves them statically on - no animation, no blinking. Used to
+ * preview the board on the LEDs before a game has started.
+ */
+void showBoardResourceColors()
+{
+  ledController.stopAnimation();
+
+  int tileCount = boardConfig.isExtension ? LED_COUNT_EXTENSION : LED_COUNT_CLASSIC;
+  for (int tile = 0; tile < tileCount; tile++)
+  {
+    ledController.turnTileOn(tile, getResourceLedColor(board.resources[tile]));
+  }
+  ledController.update();
+}
+
+/**
  * Updates the LED display based on the currently selected number
- * For normal numbers (2-6, 8-12): Lights up hexes with that number
+ * For normal numbers (2-6, 8-12): Lights up hexes with that number, using
+ * that hex's resource color (matching the web UI)
  * For 7 (robber): Triggers the robber animation
  */
 void turnOnNumber()
@@ -594,7 +759,7 @@ void turnOnNumber()
     {
       if (board.numbers[tile] == selectedNumber)
       {
-        ledController.turnTileOn(tile, ledController.Color(255, 255, 255));
+        ledController.turnTileOn(tile, getResourceLedColor(board.resources[tile]));
       }
       else
       {
@@ -722,16 +887,28 @@ void setup()
   uint16_t ledCount = boardConfig.isExtension ? LED_COUNT_EXTENSION : LED_COUNT_CLASSIC;
   ledController.begin(ledCount);
 
-  // Start appropriate LED animation
+  // Load brightness/per-resource colors from flash (or defaults on first
+  // boot) now that the strip exists
+  loadLedConfig();
+
+  // Start appropriate LED display
   if (board.resources.size() == 0)
   {
-    // If no board loaded, show waiting animation
+    // No board yet: show the waiting animation while one is generated
+    // below. boardGenerationTask() switches to the static resource-color
+    // preview as soon as it's done.
     ledController.startAnimation(WAITING_ANIMATION, nullptr, 0, 50);
+  }
+  else if (gameStarted)
+  {
+    // A game was already in progress when we rebooted: restore the
+    // selected-number highlight instead of the idle board preview.
+    turnOnNumber();
   }
   else
   {
-    // If board loaded, show current selected number
-    turnOnNumber();
+    // Board loaded but no game running: statically preview it on the LEDs
+    showBoardResourceColors();
   }
 
   // Set up server routes
@@ -745,6 +922,8 @@ void setup()
   server.on("/manualDice", HTTP_GET, handleUpdateManualDice);
   server.on("/gethaconfig", HTTP_GET, handleGetHaConfig);
   server.on("/sethaconfig", HTTP_GET, handleSetHaConfig);
+  server.on("/getledconfig", HTTP_GET, handleGetLedConfig);
+  server.on("/setledconfig", HTTP_GET, handleSetLedConfig);
 
   // Game control endpoints
   server.on("/setclassic", HTTP_GET, handleSetClassic);

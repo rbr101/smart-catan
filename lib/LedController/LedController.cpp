@@ -80,6 +80,25 @@ void LedController::turnOffAllLeds()
 }
 
 /**
+ * Set the strip's overall brightness and push it to the hardware right away
+ * so the change is visible without waiting for the next repaint.
+ */
+void LedController::setBrightness(uint8_t brightness)
+{
+    ledBrightness = brightness;
+    if (strip != nullptr)
+    {
+        strip->setBrightness(ledBrightness);
+        strip->show();
+    }
+}
+
+uint8_t LedController::getBrightness()
+{
+    return ledBrightness;
+}
+
+/**
  * Update the LED display
  * Sends color data to the physical LED strip
  */
@@ -339,13 +358,15 @@ void LedController::animationTask(void *pvParameters)
                 {
                     processed[tile] = true;
                     queue[queueEnd++] = tile;
-                    // Set the LED for this tile to red
+                    // This starting tile is the desert (the "--" tile on the
+                    // web UI, no resource color), so leave its LED off while
+                    // the wave still spreads red outward from it.
                     uint16_t ledIndex = tileToLedIndex[tile];
                     Serial.print("Turning on LED for tile ");
                     Serial.print(tile);
                     Serial.print(" at LED index ");
                     Serial.println(ledIndex);
-                    instance->strip->setPixelColor(ledIndex, instance->Color(255, 0, 0));
+                    instance->strip->setPixelColor(ledIndex, 0);
                 }
             }
             instance->strip->show();

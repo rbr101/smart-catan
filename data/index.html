@@ -109,6 +109,45 @@
 
       <hr>
 
+      <!-- LED board display settings -->
+      <h3>LED Board</h3>
+
+      <label class="settings-field-label" for="ledBrightness">Brightness (<span id="ledBrightnessValue">80</span>)</label>
+      <input type="range" id="ledBrightness" min="0" max="255" class="settings-range">
+      <br><br>
+
+      <div class="color-picker-row">
+        <label for="colorSheep">Sheep</label>
+        <input type="color" id="colorSheep">
+      </div>
+      <div class="color-picker-row">
+        <label for="colorWood">Wood</label>
+        <input type="color" id="colorWood">
+      </div>
+      <div class="color-picker-row">
+        <label for="colorWheat">Wheat</label>
+        <input type="color" id="colorWheat">
+      </div>
+      <div class="color-picker-row">
+        <label for="colorBrick">Brick</label>
+        <input type="color" id="colorBrick">
+      </div>
+      <div class="color-picker-row">
+        <label for="colorOre">Ore</label>
+        <input type="color" id="colorOre">
+      </div>
+      <div class="color-picker-row">
+        <label for="colorDesert">Desert (no number)</label>
+        <input type="color" id="colorDesert">
+      </div>
+      <br>
+
+      <button id="saveLedConfigBtn">Save LED Settings</button>
+      <span id="ledConfigStatus" class="ha-config-status"></span>
+      <br><br>
+
+      <hr>
+
       <!-- Home Assistant integration settings -->
       <h3>Home Assistant</h3>
 

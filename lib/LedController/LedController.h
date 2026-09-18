@@ -71,6 +71,17 @@ public:
     void turnOffAllLeds();
 
     /**
+     * Set the strip's overall brightness and apply it immediately
+     * @param brightness Brightness level (0-255)
+     */
+    void setBrightness(uint8_t brightness);
+
+    /**
+     * Get the strip's current overall brightness
+     */
+    uint8_t getBrightness();
+
+    /**
      * Update the LED strip display
      * Pushes current colors to the physical LEDs
      */

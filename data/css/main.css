@@ -363,6 +363,34 @@ input:checked+.slider:before {
   color: #2e7d32;
 }
 
+/* LED board settings */
+.settings-range {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 4px;
+}
+
+.color-picker-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 6px;
+}
+
+.color-picker-row label {
+  font-size: 14px;
+  color: #333;
+}
+
+.color-picker-row input[type="color"] {
+  width: 48px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
 /* Disabled button styling */
 button:disabled {
   background-color: #ccc;
